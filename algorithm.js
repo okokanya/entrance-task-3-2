@@ -63,9 +63,13 @@ input = {
   maxPower: 2100
 };
 
+consumedEnergy = {
+  value: 0,
+  devices: {}
+}
 
 let schedule = {};
-for (i = 0; i < 24; i++) {
+for (let i = 0; i < 24; i++) {
   schedule[i] = [];
 }
 
@@ -73,7 +77,6 @@ const devicesObject = {};
 input.devices.forEach(device => (devicesObject[device.id] = device));
 
 const devicesInSchedule = [];
-
 
 input.rates.sort(compareValue);
 function compareValue(rateA, rateB) {
@@ -89,16 +92,11 @@ function compareIndex(deviceA, deviceB) {
   return deviceB.index - deviceA.index;
 }
 
-devicesWithIndex.sort(compareIndex);
-
-const allDayDevices = devicesWithIndex.filter(device => device.duration === 24);
-const partDayDevices = devicesWithIndex.filter(device => device.duration < 24);
-
-for (let device in allDayDevices) {
-  for (let hour in schedule) {
-    schedule[hour].push(allDayDevices[device].id);
-  }
+function getHourValue(hour) {
+  return input.rates.reduce((acc, rate) => rate.from <= hour && rate.to > hour ? rate.value : acc);
 }
+
+devicesWithIndex.sort(compareIndex);
 
 function canTurnOnDevice(hour, id) {
   if (devicesInSchedule.includes(id)) return false;
@@ -106,18 +104,36 @@ function canTurnOnDevice(hour, id) {
   const deviceMode = devicesObject[id].mode;
   if (deviceMode && deviceMode !== mode) return false;
   const usedPower = schedule[hour].reduce(
-    (acc, deviceId) => acc + devicesObject[deviceId].power);
+    (acc, deviceId) => acc + devicesObject[deviceId].power, 0);
   const remainingPower = 2100 - usedPower;
   if (remainingPower < devicesObject[id].power) return false;
   return true;
 }
 
+function getHourValue(hour) {
+  return input.rates.reduce((acc, rate) => {
+    if (rate.from > rate.to) {
+      return (rate.from <= hour && hour < 24) || (hour >= 0 && hour < rate.to) ? rate.value : acc;
+    } else {
+      return rate.from <= hour && rate.to > hour ? rate.value : acc
+    }
+  }, 0)
+}
+
 function turnOnDevice(hour, id) {
   const duration = devicesObject[id].duration;
-
-  for (i = hour; i < hour + duration; i++) {
+  for (let i = hour; i < hour + duration; i++) {
     const pushToHour = i > 23 ? i % 24 : i;
     schedule[pushToHour].push(id);
+
+    const value = getHourValue(pushToHour) * devicesObject[id].power / 1000;
+
+    consumedEnergy.value = consumedEnergy.value + value;
+    if (consumedEnergy.devices[id]) {
+      consumedEnergy.devices[id] = consumedEnergy.devices[id] + value;
+    } else {
+      consumedEnergy.devices[id] = value;
+    }
   }
   devicesInSchedule.push(id);
 
@@ -127,12 +143,12 @@ input.rates.forEach(rate => {
   const time =
     rate.from < rate.to ? rate.to - rate.from : 24 - rate.from + rate.to;
 
-  for (i = rate.from; i < rate.from + time; i++) {
-    partDayDevices.forEach(device => {
+  for (let i = rate.from; i < rate.from + time; i++) {
+    devicesWithIndex.forEach(device => {
       const hour = i % 24;
       if (canTurnOnDevice(hour, device.id)) turnOnDevice(hour, device.id);
     })
   }
 });
-
-console.log(schedule);
+const output = { schedule, consumedEnergy }; 
+console.log(output);
